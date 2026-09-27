@@ -1,0 +1,42 @@
+#!/bin/sh
+# respawn LOGFILE CMD [ARGS...]
+#
+# Runs CMD in a loop: whenever the process dies (for any reason), it is
+# started again. Guard against a crash loop: at most MAX_RESTARTS attempts
+# within a WINDOW-second window (measured via /proc/uptime, since the board
+# has no RTC and the wall clock is unreliable); after that respawn gives up.
+# SIGTERM/SIGINT (e.g. from "start-stop-daemon -K") kills the current child
+# and ends the loop cleanly, so "stop" in the init script still works the
+# same way as without respawn.
+
+MAX_RESTARTS=5
+WINDOW=60
+
+LOG=$1
+shift
+
+child=""
+trap 'trap - TERM INT; [ -n "$child" ] && kill "$child" 2>/dev/null; exit 0' TERM INT
+
+count=0
+window_start=$(awk '{print int($1)}' /proc/uptime)
+
+while true; do
+    now=$(awk '{print int($1)}' /proc/uptime)
+    if [ $((now - window_start)) -gt "$WINDOW" ]; then
+        count=0
+        window_start=$now
+    fi
+    count=$((count + 1))
+    if [ "$count" -gt "$MAX_RESTARTS" ]; then
+        echo "respawn: '$*' failed $MAX_RESTARTS times in ${WINDOW}s, giving up" >> "$LOG"
+        exit 1
+    fi
+
+    "$@" >> "$LOG" 2>&1 &
+    child=$!
+    wait "$child"
+    rc=$?
+    child=""
+    echo "respawn: '$1' exited (code $rc), restart $count/$MAX_RESTARTS" >> "$LOG"
+done

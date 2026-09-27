@@ -9,6 +9,7 @@
 ### END INIT INFO
 
 DAEMON=/usr/bin/pc-bridge
+RESPAWN=/usr/bin/pcbridge-respawn
 PIDFILE=/var/run/pc-bridge.pid
 LOG=/var/log/pc-bridge.log
 
@@ -17,8 +18,10 @@ LOG=/var/log/pc-bridge.log
 case "$1" in
   start)
     echo "Starting pc-bridge"
-    start-stop-daemon -S -b -m -p "$PIDFILE" -x /bin/sh -- \
-      -c "exec $DAEMON >>$LOG 2>&1"
+    # "$RESPAWN" runs DAEMON in a loop and brings it back up if it dies;
+    # the PID file holds respawn's PID (it has a TERM trap, so "stop" still
+    # works right away)
+    start-stop-daemon -S -b -m -p "$PIDFILE" -x "$RESPAWN" -- "$LOG" "$DAEMON"
     ;;
   stop)
     echo "Stopping pc-bridge"

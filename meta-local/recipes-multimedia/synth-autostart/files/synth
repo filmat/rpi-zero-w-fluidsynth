@@ -18,7 +18,9 @@ PERIOD_SIZE=256   # klatek w jednym okresie bufora ALSA (256 = ok. 5,8 ms przy 4
 PERIODS=4         # liczba okresow w buforze (256 x 4 = 1024 klatek = ok. 23 ms opoznienia)
 POLYPHONY=64      # limit jednoczesnych glosow; domyslne 256 przeciazalo procesor przy arpeggiatorze
 CONNECT=/usr/bin/synth-connect
+RESPAWN=/usr/bin/respawn
 LOG=/var/log/synth.log
+CONNECT_LOG=/var/log/synth-connect.log
 
 # Czeka do 30 s, az karta dzwiekowa sie pojawi (I2S wstaje po starcie).
 wait_for_card() {
@@ -36,9 +38,15 @@ case "$1" in
     echo -n "Starting synth: "
     wait_for_card || { echo "brak karty $CARD"; exit 1; }
     amixer -c "$CARD" sset Digital "$VOLUME" >/dev/null
-    # exec: powloka zamienia sie we fluidsynth, wiec PID w pliku to sam fluidsynth
-    start-stop-daemon -S -b -m -p /run/fluidsynth.pid -x /bin/sh -- -c "exec fluidsynth -s -i -g $GAIN -a alsa -m alsa_seq -o audio.alsa.device=plughw:$CARD -o audio.period-size=$PERIOD_SIZE -o audio.periods=$PERIODS -o synth.polyphony=$POLYPHONY $SF2 >> $LOG 2>&1"
-    start-stop-daemon -S -b -m -p /run/synth-connect.pid -x "$CONNECT"
+    # "$RESPAWN" runs fluidsynth/synth-connect in a loop and brings them
+    # back up if they die; the PID file holds respawn's PID, so "stop"
+    # (SIGTERM) kills the whole branch (respawn has a trap that kills its
+    # child and then exits itself).
+    start-stop-daemon -S -b -m -p /run/fluidsynth.pid -x "$RESPAWN" -- "$LOG" \
+        fluidsynth -s -i -g "$GAIN" -a alsa -m alsa_seq \
+        -o audio.alsa.device=plughw:$CARD -o audio.period-size=$PERIOD_SIZE \
+        -o audio.periods=$PERIODS -o synth.polyphony=$POLYPHONY "$SF2"
+    start-stop-daemon -S -b -m -p /run/synth-connect.pid -x "$RESPAWN" -- "$CONNECT_LOG" "$CONNECT"
     echo "done."
     ;;
   stop)

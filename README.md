@@ -417,6 +417,57 @@ playing, look at the state of the card (`status`, `XRUN`) and at
 `voice_count`. Stop the arpeggiator, lower `POLYPHONY`, or turn the reverb
 and chorus off.
 
+If fluidsynth, `synth-connect` or `pc-bridge` dies (see "Self-healing"
+below), it comes back on its own within a few seconds. If sound stays
+silent longer than that, log in and check `pgrep -l fluidsynth`,
+`aconnect -l` and the log files.
+
+### CC 3 to Program Change (`pc-bridge`)
+
+Some controllers (the Arturia KeyStep 37 mk1 among them) have knobs that
+only send control changes, with no way to send a MIDI Program Change, so
+they cannot switch the fluidsynth patch on their own. `pc-bridge`
+(`meta-local/recipes-multimedia/pc-bridge/`) is a small ALSA sequencer
+client that turns **CC 3** (an "undefined" controller number in the MIDI
+spec, rarely used by factory presets) on any channel into a real Program
+Change on that channel, sent to fluidsynth. A real Program Change sent by a
+controller (for example the MPK's PROG CHANGE pad mode) is not touched, it
+reaches fluidsynth directly through the existing connections.
+
+- It finds fluidsynth by client name (containing `FLUID`) and reconnects
+  when fluidsynth restarts. It subscribes to every readable MIDI port
+  except `Midi Through` and fluidsynth itself, and follows hotplug through
+  `System:Announce`, so a controller does not need a fixed client number.
+  This runs independently of `synth-connect`, and its output port is
+  `NO_EXPORT` so `synth-connect` leaves it alone.
+- To use it: set a knob to CC 3, absolute mode, in the controller's own
+  editor (Arturia MIDI Control Center, MPK Editor, ...). On our MPK Mini
+  MK3 the third knob already sent CC 3 in the factory preset.
+- Log: `/var/log/pc-bridge.log` (lines `in <- ...`, `out -> FLUID Synth
+  ...`, `ch N -> program M`). See `CCtoPC.md` in the repo root for the full
+  design rationale.
+- The full range of MIDI CC numbers is scanned on every channel, so a
+  controller whose factory mapping happens to use CC 3 for something else
+  would have that knob silently change the patch instead. Check this
+  before adding a new controller.
+
+### Self-healing
+
+fluidsynth, `synth-connect` and `pc-bridge` all run under a small
+supervisor, `respawn` (`.../synth-autostart/files/respawn`, installed as
+`/usr/bin/respawn`; a duplicate ships with `pc-bridge` as
+`/usr/bin/pcbridge-respawn`, to avoid two packages installing the same
+path). It restarts the program whenever it exits, up to 5 times within 60
+seconds, after which it gives up and logs that. `SIGTERM` (what
+`/etc/init.d/synth stop` and `/etc/init.d/pc-bridge stop` send) kills the
+supervised process cleanly and stops the loop, so `stop`/`restart` work as
+before.
+
+This matters most for fluidsynth, whose failure is loud (silence), but also
+for `synth-connect` and `pc-bridge`, whose failure is quiet: sound keeps
+playing, only auto-connecting new controllers, or CC 3 to Program Change,
+silently stops working.
+
 ## License
 
 MIT, see `LICENSE`. The license covers the files in this repository only;

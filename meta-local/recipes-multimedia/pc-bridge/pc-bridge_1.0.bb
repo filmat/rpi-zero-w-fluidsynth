@@ -7,7 +7,8 @@ LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
 SRC_URI = "file://pc-bridge.c \
-           file://pc-bridge.init"
+           file://pc-bridge.init \
+           file://respawn"
 
 S = "${WORKDIR}"
 
@@ -29,4 +30,7 @@ do_install() {
     install -d ${D}${bindir} ${D}${sysconfdir}/init.d
     install -m 0755 ${B}/pc-bridge ${D}${bindir}/pc-bridge
     install -m 0755 ${S}/pc-bridge.init ${D}${sysconfdir}/init.d/pc-bridge
+    # nazwa inna niz w synth-autostart (tez instaluje "respawn"), zeby
+    # oba pakiety w tym samym obrazie nie kolidowaly o ta sama sciezke
+    install -m 0755 ${S}/respawn ${D}${bindir}/pcbridge-respawn
 }

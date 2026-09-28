@@ -26,7 +26,8 @@ meta-local/
 └── recipes-multimedia/
     ├── fluidsynth/                             fluidsynth built with ALSA only (no pulseaudio)
     ├── soundfonts/                             TimGM6mb soundfont (GPL-2.0), fetched from GitHub
-    └── synth-autostart/                        init script that starts fluidsynth, and synth-connect
+    ├── synth-autostart/                        init script that starts fluidsynth, and synth-connect
+    └── pc-bridge/                              CC 3 -> Program Change, synth knobs -> SoundFont NRPN
 ```
 
 The custom machine `raspberrypi0-wifi-synth` inherits from `raspberrypi0-wifi`
@@ -63,7 +64,7 @@ for USB host mode (`dwc2,dr_mode=host`) and for the sound card
   card is called `IQaudIODAC`. Active speakers (we used Edifier) are
   connected to its output.
 - MIDI controllers on the hub: Arturia KeyStep 37 (MIDI channel 15) and
-  Akai MPK Mini MK3 (channel 1). The KeyStep is powered from its own USB
+  Akai MPK Mini MK3 (channel 16, drum pads on channel 10). The KeyStep is powered from its own USB
   charger through the data/power splitter that comes with it, and only the
   data leg goes to the hub. We do not know whether that leg also carries 5 V.
 
@@ -298,6 +299,12 @@ board, edit `/etc/init.d/synth` and run `/etc/init.d/synth restart`.
 | `PERIOD_SIZE` | `256` | Frames in one ALSA period. |
 | `PERIODS` | `4` | Number of periods in the buffer. `256 x 4` = 1024 frames, about 23 ms at 44.1 kHz. |
 | `POLYPHONY` | `64` | Limit of simultaneous voices. |
+| `REVERB` | room size `0.95`, damp `0.2`, width `1`, level `1` | Settings of the reverb unit (`-o synth.reverb.*`). A large room, so the reverb knob (CC 91) has something to work with. |
+| `CHORUS` | nr `4`, level `1.5`, speed `0.5` Hz, depth `20` ms | Settings of the chorus unit (`-o synth.chorus.*`). With `nr 3` the chorus seemed to lean to the left channel (by ear), so an even number is used. |
+
+The effect units are on, but the sound starts dry: `pc-bridge` sets the
+reverb and chorus send of every channel to the "knob at 0" position when
+it connects to fluidsynth (see "`pc-bridge`" below).
 
 Notes from testing on the board:
 
@@ -335,7 +342,8 @@ tail /var/log/synth.log
 ```
 
 `aseqdump` and the fluidsynth shell count MIDI channels from 0: the KeyStep
-(channel 15) shows up as `14` and the MPK (channel 1) as `0`.
+(channel 15) shows up as `14`, the MPK (channel 16) as `15` and the drum
+pads (channel 10) as `9`.
 
 ### The fluidsynth shell over TCP
 
@@ -359,7 +367,8 @@ last until fluidsynth restarts, permanent ones belong in `files/synth`:
 | `voice_count` | Number of active voices (compare with `POLYPHONY`). |
 | `gain 0.5` | Set the master gain. `get synth.gain` shows the current value. |
 | `get <name>`, `set <name> <value>`, `info <name>` | Read, change or describe a setting, e.g. `get synth.polyphony`. `info` says whether a setting can be changed on the fly (`Real-time: yes`). `settings` lists them all. |
-| `reverb off`, `reverb on`, `chorus off`, `chorus on` | Turn the effects off or on, they cost CPU. |
+| `reverb off`, `reverb on`, `chorus off`, `chorus on` | Turn the effect units off or on, they cost CPU. With a unit off, its knob does nothing. |
+| `rev_setroomsize`, `rev_setdamp`, `rev_setwidth`, `rev_setlevel`, `cho_set_nr`, `cho_set_level`, `cho_set_speed`, `cho_set_depth` | Try other effect settings live (`help reverb`, `help chorus`), then copy the good ones to `REVERB`/`CHORUS`. |
 | `noteon <chan> <key> <vel>`, `noteoff <chan> <key>` | Play or release a note without a keyboard, e.g. `noteon 0 60 100`. |
 | `cc <chan> <ctrl> <value>`, `prog <chan> <num>` | Send a control change or a program change. |
 | `channels`, `fonts` | Show the instrument on each channel and the loaded soundfonts. |
@@ -367,12 +376,47 @@ last until fluidsynth restarts, permanent ones belong in `files/synth`:
 
 ### MIDI controllers
 
-The MPK Mini MK3 sends on channel 1 and the KeyStep 37 on channel 15. Control
-changes apply per channel, so a KeyStep knob changes only the sound of
-channel 15. According to the fluidsynth documentation, CC 1 (modulation),
-7 (volume), 10 (pan), 11 (expression), 91 (reverb) and 93 (chorus) work out
-of the box. CC 72, 73 and 74 (release, attack, brightness) do not, they need
-custom modulators in the soundfont.
+The KeyStep 37 sends on channel 15 and the MPK Mini MK3 on channel 16, its
+drum pads on channel 10 (the General MIDI drum channel, the only drum
+channel in fluidsynth by default). Channels 1 and 10 are the busiest on
+grooveboxes, so the keyboards stay away from them. Control changes apply per
+channel, so a KeyStep knob changes only the sound of channel 15.
+
+Knob map used on both controllers (set in Arturia MIDI Control Center and
+the MPK Editor; all knobs are endless encoders in **absolute** mode, the
+controller keeps the 0–127 value):
+
+| CC | Function | Handled by |
+|---|---|---|
+| 3 | Patch select | `pc-bridge` (Program Change) |
+| 7, 10, 11 | Volume, pan, expression | fluidsynth |
+| 1 | Modulation (vibrato depth) | fluidsynth |
+| 5, 65 | Portamento time, portamento on/off (≥ 64 = on) | fluidsynth |
+| 73, 75, 79, 72 | Attack, decay, sustain, release | `pc-bridge` (NRPN) |
+| 74, 71 | Filter cutoff, resonance | `pc-bridge` (NRPN) |
+| 76 | Vibrato rate | `pc-bridge` (NRPN) |
+| 91, 93 | Reverb send, chorus send | `pc-bridge` (NRPN); fluidsynth also handles them, but only up to 20 % |
+
+Notes from testing:
+
+- Fluidsynth handles CC 1, 7, 10, 11, 91 and 93 through the default
+  modulators of the SoundFont spec, and CC 5, 64, 65 itself. CC 91 and 93
+  reach only 20 % of the effect send that way, too little to hear, so
+  `pc-bridge` handles them too.
+- Portamento time is about `CC 5 x 128 ms` in fluidsynth, so almost all of
+  the useful range is at the bottom of the knob (10 is already 1.3 s). We
+  set the knob range to 0–12 in the controller editor. The glide is heard
+  when playing legato (the next key pressed before the previous one is
+  released).
+- The MPK sends a Program Change with the number typed in the MPK Editor,
+  and fluidsynth counts programs from 0: type the General MIDI number
+  minus 1 (e.g. 81 for Lead 2, sawtooth). `inst 1` in the fluidsynth shell
+  lists the programs as fluidsynth numbers them.
+- Pads: on the MPK the pad channel is set per program, not per pad bank. A
+  program with drum pads (channel 10) cannot also use its pads for Program
+  Change or CC on the keyboard channel, so drums have their own program.
+- Channel aftertouch works (fluidsynth maps it to vibrato depth), poly
+  aftertouch does nothing with this soundfont.
 
 ### Using another controller
 
@@ -402,9 +446,9 @@ Things to keep in mind:
 - Fluidsynth accepts all 16 MIDI channels, and by default every channel has
   the same instrument (`Piano 1`, see `channels` in the shell). The channel the
   controller sends on decides the sound. Channel 10 (9 when counted from 0) is
-  normally drums in General MIDI, we did not check that in this soundfont.
-- The knobs work only if they send control changes that fluidsynth handles by
-  default (see "MIDI controllers" above). Two controllers on the same channel
+  drums in General MIDI.
+- The knobs work only if they send the control changes from the table in
+  "MIDI controllers" above. Two controllers on the same channel
   share the controller state (for example one can change the volume of the
   other).
 - The hub is powered from the same supply as the board. The KeyStep declares
@@ -422,7 +466,9 @@ below), it comes back on its own within a few seconds. If sound stays
 silent longer than that, log in and check `pgrep -l fluidsynth`,
 `aconnect -l` and the log files.
 
-### CC 3 to Program Change (`pc-bridge`)
+### `pc-bridge`: CC 3 to Program Change, synth knobs to NRPN
+
+#### CC 3 to Program Change
 
 Some controllers (the Arturia KeyStep 37 mk1 among them) have knobs that
 only send control changes, with no way to send a MIDI Program Change, so
@@ -444,12 +490,57 @@ reaches fluidsynth directly through the existing connections.
   editor (Arturia MIDI Control Center, MPK Editor, ...). On our MPK Mini
   MK3 the third knob already sent CC 3 in the factory preset.
 - Log: `/var/log/pc-bridge.log` (lines `in <- ...`, `out -> FLUID Synth
-  ...`, `ch N -> program M`). See `CCtoPC.md` in the repo root for the full
-  design rationale.
-- The full range of MIDI CC numbers is scanned on every channel, so a
-  controller whose factory mapping happens to use CC 3 for something else
-  would have that knob silently change the patch instead. Check this
-  before adding a new controller.
+  ...`, `ch N -> program M`, `reverb/chorus send -> knob 0 on all
+  channels`). Knob moves translated to NRPN are not logged, a knob sweep
+  would fill the log, which lives in RAM. See `CCtoPC.md` in the repo root
+  for the full design rationale of CC 3.
+- CC 3 and the NRPN knobs are handled on every channel, so a controller
+  whose factory mapping happens to use one of these CC numbers for
+  something else would have that knob silently change the sound instead.
+  Check this before adding a new controller (or a groovebox that sends CC).
+
+#### Synth knobs to NRPN
+
+Fluidsynth has no default mapping for the envelope, the filter or the
+vibrato rate, and the soundfont has no modulators for them. Instead of
+editing the soundfont, `pc-bridge` turns the knob CCs into SoundFont 2.01
+NRPN messages, which fluidsynth supports (`fluid_synth.c`, "SoundFont 2.01
+NRPN Message"): CC 99 = 120, CC 98 = generator number, CC 38 and CC 6 =
+14-bit value. Fluidsynth adds `(value - 8192) * nrpn_scale` to the
+generator of the instrument, on that channel, for every instrument. So a
+knob is an offset from the instrument's own setting, and the setting stays
+when the patch changes.
+
+The mapping is the `nrpn_map` table in `pc-bridge.c`. A knob value
+0–127 maps linearly to an offset from `lo` to `hi`, in the generator's own
+units; `scale` is the generator's `nrpn_scale` from `fluid_gen.c` of
+fluidsynth 2.3.4. To tune a knob, change `lo`/`hi` and rebuild.
+
+| CC | Generator | Units | Knob |
+|---|---|---|---|
+| 73 attack | 34 | timecents (1200 = time x 2) | 0 = as the instrument, 127 = up to about 4 s |
+| 75 decay | 36 | timecents | 64 = as the instrument |
+| 79 sustain | 37 | centibels of attenuation | 127 = as the instrument, 0 = -40 dB |
+| 72 release | 38 | timecents | 64 = as the instrument |
+| 74 cutoff | 8 | cents | 127 = as the instrument (usually open), 0 = about 80 Hz |
+| 71 resonance | 9 | centibels | 0 = as the instrument, 127 = +24 dB |
+| 76 vibrato rate | 24 | cents | 64 = as the instrument, x/÷ 4 at the ends |
+| 91 reverb send | 16 | 0.1 % | 0 = dry (for instruments with up to 20 % of their own), 127 = 100 % |
+| 93 chorus send | 15 | 0.1 % | as reverb |
+
+Notes from testing:
+
+- The first version had the whole range of sustain at -96 dB..0 dB and of
+  reverb/chorus at -100 %..+100 %: half of the knob did nothing audible.
+  The current ranges came from that.
+- Sustain is a level, not a time: the note falls to it after the decay,
+  and many sustained instruments have a very long decay. Turn decay down
+  to hear the sustain knob.
+- Attack, decay and sustain changes apply to notes played after the
+  change, release to notes released after it.
+- The knobs and the synth can disagree after fluidsynth restarts (offsets
+  back to 0, the controller still remembers its values): the first knob
+  move sets the synth to the knob's value.
 
 ### Self-healing
 
@@ -465,8 +556,8 @@ before.
 
 This matters most for fluidsynth, whose failure is loud (silence), but also
 for `synth-connect` and `pc-bridge`, whose failure is quiet: sound keeps
-playing, only auto-connecting new controllers, or CC 3 to Program Change,
-silently stops working.
+playing, only auto-connecting new controllers, or CC 3 to Program Change
+and the synth knobs, silently stops working.
 
 ## License
 

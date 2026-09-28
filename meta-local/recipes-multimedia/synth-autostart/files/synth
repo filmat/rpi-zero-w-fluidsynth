@@ -17,6 +17,10 @@ GAIN=0.5          # glosnosc glowna fluidsynth (-g); domyslne 0.2 jest za ciche,
 PERIOD_SIZE=256   # klatek w jednym okresie bufora ALSA (256 = ok. 5,8 ms przy 44,1 kHz); 64 dawalo XRUN
 PERIODS=4         # liczba okresow w buforze (256 x 4 = 1024 klatek = ok. 23 ms opoznienia)
 POLYPHONY=64      # limit jednoczesnych glosow; domyslne 256 przeciazalo procesor przy arpeggiatorze
+REVERB="-o synth.reverb.room-size=0.95 -o synth.reverb.damp=0.2 -o synth.reverb.width=1 -o
+synth.reverb.level=1"   # duza sala; gałka CC 91 reguluje wysylke
+CHORUS="-o synth.chorus.nr=4 -o synth.chorus.level=1.5 -o synth.chorus.speed=0.5 -o
+synth.chorus.depth=20"         # parzyste nr = rowno L/P; gałka CC 93 reguluje wysylke
 CONNECT=/usr/bin/synth-connect
 RESPAWN=/usr/bin/respawn
 LOG=/var/log/synth.log
@@ -45,7 +49,7 @@ case "$1" in
     start-stop-daemon -S -b -m -p /run/fluidsynth.pid -x "$RESPAWN" -- "$LOG" \
         fluidsynth -s -i -g "$GAIN" -a alsa -m alsa_seq \
         -o audio.alsa.device=plughw:$CARD -o audio.period-size=$PERIOD_SIZE \
-        -o audio.periods=$PERIODS -o synth.polyphony=$POLYPHONY "$SF2"
+        -o audio.periods=$PERIODS -o synth.polyphony=$POLYPHONY $REVERB $CHORUS "$SF2"
     start-stop-daemon -S -b -m -p /run/synth-connect.pid -x "$RESPAWN" -- "$CONNECT_LOG" "$CONNECT"
     echo "done."
     ;;

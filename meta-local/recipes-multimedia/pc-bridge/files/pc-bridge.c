@@ -7,6 +7,10 @@
  *   "FLUID"); reconnects when FluidSynth restarts.
  * - CC PC_CC on channel N -> Program Change N <value>. Real Program Change
  *   from controllers is not touched (it goes to FluidSynth directly).
+ * - CCs listed in nrpn_map (ADSR, filter, vibrato rate, reverb/chorus send)
+ *   -> SoundFont 2.01 NRPN on the same channel: CC 99 = 120, CC 98 =
+ *   generator, CC 38 / CC 6 = 14-bit data. FluidSynth adds
+ *   (data - 8192) * nrpn_scale to the instrument's own generator value.
  *
  * Build: $CC pc-bridge.c -o pc-bridge -lasound
  */
@@ -26,9 +30,52 @@
 #define FS_MATCH "FLUID"   /* substring of FluidSynth's ALSA client name */
 #endif
 
+/*
+ * Knob 0..127 -> offset lo..hi in the generator's own units; scale is the
+ * generator's nrpn_scale from fluid_gen.c (FluidSynth 2.3.4).
+ */
+struct nrpn_map {
+    int cc, gen, scale, lo, hi;
+};
+
+static const struct nrpn_map nrpn_map[] = {
+    { 73, 34, 2,     0, 14400 },  /* attack: timecents, 0 = original, up to ~x4096 */
+    { 75, 36, 2, -7200,  7200 },  /* decay: timecents, 64 = original */
+    { 79, 37, 1,   400,     0 },  /* sustain: cB of attenuation, 127 = original, 0 = -40 dB */
+    { 72, 38, 2, -7200,  7200 },  /* release: timecents, 64 = original */
+    { 74,  8, 2, -9600,     0 },  /* cutoff: cents, 127 = original (usually open) */
+    { 71,  9, 1,     0,   240 },  /* resonance: cB, 0 = original */
+    { 76, 24, 4, -2400,  2400 },  /* vibrato LFO rate: cents, 64 = original */
+    /* reverb/chorus: 0 dries instruments with up to 20 % own send; a lower
+     * lo leaves a dead zone on instruments that have 0 % of their own */
+    { 91, 16, 1,  -200,  1000 },  /* reverb send: 0.1 % */
+    { 93, 15, 1,  -200,  1000 },  /* chorus send: 0.1 % */
+};
+
 static snd_seq_t *seq;
 static int me, in_port, out_port;
 static int last[16];
+
+static void send_nrpn(int ch, const struct nrpn_map *m, int value);
+
+/*
+ * Start dry: put reverb and chorus send on every channel where knob 0
+ * would put them, so instruments with their own send in the SF2 are dry
+ * too and the first knob move does not jump.
+ */
+static void send_dry_effects(void)
+{
+    size_t i;
+    int ch;
+
+    for (i = 0; i < sizeof(nrpn_map) / sizeof(nrpn_map[0]); i++) {
+        if (nrpn_map[i].cc != 91 && nrpn_map[i].cc != 93)
+            continue;
+        for (ch = 0; ch < 16; ch++)
+            send_nrpn(ch, &nrpn_map[i], 0);
+    }
+    printf("reverb/chorus send -> knob 0 on all channels\n");
+}
 
 static void handle_port(int c, int p)
 {
@@ -56,6 +103,7 @@ static void handle_port(int c, int p)
         if ((cap & w) == w && snd_seq_connect_to(seq, out_port, c, p) >= 0) {
             memset(last, -1, sizeof(last));   /* new synth -> forget state */
             printf("out -> %s (%d:%d)\n", cname, c, p);
+            send_dry_effects();
         }
         return;
     }
@@ -109,6 +157,55 @@ static void send_pc(int ch, int value)
     }
 }
 
+static void send_cc(int ch, int param, int value)
+{
+    snd_seq_event_t ev;
+
+    snd_seq_ev_clear(&ev);
+    snd_seq_ev_set_source(&ev, out_port);
+    snd_seq_ev_set_subs(&ev);
+    snd_seq_ev_set_direct(&ev);
+    snd_seq_ev_set_controller(&ev, ch, param, value);
+    snd_seq_event_output_direct(seq, &ev);
+}
+
+/*
+ * The full sequence goes out on every knob move: FluidSynth resets the
+ * selected generator after each data entry. CC 6 must come last, it is
+ * the one that applies (MSB << 7) + the stored CC 38.
+ * No log line here: a knob sweep would flood the RAM log.
+ */
+static void send_nrpn(int ch, const struct nrpn_map *m, int value)
+{
+    int offset = m->lo + value * (m->hi - m->lo) / 127;
+    int data = 8192 + offset / m->scale;
+
+    if (data < 0) data = 0;
+    if (data > 16383) data = 16383;
+    ch &= 15;
+
+    send_cc(ch, 99, 120);            /* NRPN MSB: SoundFont generator */
+    send_cc(ch, 98, m->gen);         /* NRPN LSB: generator number (< 100) */
+    send_cc(ch, 38, data & 127);     /* data entry LSB */
+    send_cc(ch, 6, data >> 7);       /* data entry MSB: applies the value */
+}
+
+static void handle_cc(int ch, int param, int value)
+{
+    size_t i;
+
+    if (param == PC_CC) {
+        send_pc(ch, value);
+        return;
+    }
+    for (i = 0; i < sizeof(nrpn_map) / sizeof(nrpn_map[0]); i++) {
+        if (nrpn_map[i].cc == param) {
+            send_nrpn(ch, &nrpn_map[i], value);
+            return;
+        }
+    }
+}
+
 int main(void)
 {
     setvbuf(stdout, NULL, _IOLBF, 0);
@@ -137,7 +234,8 @@ int main(void)
     snd_seq_connect_from(seq, in_port, SND_SEQ_CLIENT_SYSTEM,
                          SND_SEQ_PORT_SYSTEM_ANNOUNCE);
     scan_all();
-    printf("pc-bridge: CC %d -> Program Change (client %d)\n", PC_CC, me);
+    printf("pc-bridge: CC %d -> Program Change, %d CCs -> NRPN (client %d)\n",
+           PC_CC, (int)(sizeof(nrpn_map) / sizeof(nrpn_map[0])), me);
 
     for (;;) {
         snd_seq_event_t *ev;
@@ -154,8 +252,8 @@ int main(void)
             handle_port(ev->data.addr.client, ev->data.addr.port);
             break;
         case SND_SEQ_EVENT_CONTROLLER:
-            if (ev->data.control.param == PC_CC)
-                send_pc(ev->data.control.channel, ev->data.control.value);
+            handle_cc(ev->data.control.channel, ev->data.control.param,
+                      ev->data.control.value);
             break;
         default:
             break;

@@ -196,7 +196,7 @@ service for the test and start it again afterwards:
 /etc/init.d/synth start
 ```
 
-Check that the sound card is there (`IQaudIODAC` next to `vc4-hdmi`):
+Check that the sound card is there (`IQaudIODAC`; there is no HDMI sound card, VC4 graphics is disabled in the machine config):
 
 ```bash
 aplay -l

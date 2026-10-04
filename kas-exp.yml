@@ -1,7 +1,0 @@
-header:
-  version: 14
-
-local_conf_header:
-  experiment: |
-    PREFERRED_PROVIDER_virtual/kernel = "linux-raspberrypi"
-    PREFERRED_VERSION_linux-raspberrypi = "6.12%"

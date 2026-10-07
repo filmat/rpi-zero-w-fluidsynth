@@ -1,0 +1,10 @@
+header:
+  version: 14
+
+# Debug variant: kas build kas.yml:kas-debug.yml
+local_conf_header:
+  bootchart: |
+    # Boot profiling: bootchartd runs as PID 1 and starts /sbin/init;
+    # the S99 init script stops data collection; result in /var/log/bootchart.tgz
+    IMAGE_INSTALL:append = " bootchart2 bootchartd-stop-initscript"
+    CMDLINE_DEBUG = "init=/sbin/bootchartd"

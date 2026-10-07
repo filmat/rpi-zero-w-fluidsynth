@@ -19,7 +19,7 @@ DEPENDS = "alsa-lib"
 
 inherit update-rc.d
 INITSCRIPT_NAME = "pc-bridge"
-INITSCRIPT_PARAMS = "defaults 95"
+INITSCRIPT_PARAMS = "start 00 2 3 4 5 . stop 10 0 1 6 ."
 
 # Zmiana CC / kroku bez edycji źródła, np. w local.conf:
 # PC_BRIDGE_DEFS:pn-pc-bridge = "-DPC_CC=3 -DSTEP=8"

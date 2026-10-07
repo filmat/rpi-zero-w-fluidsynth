@@ -14,7 +14,7 @@ S = "${WORKDIR}"
 inherit update-rc.d
 
 INITSCRIPT_NAME = "synth"
-INITSCRIPT_PARAMS = "defaults 90"
+INITSCRIPT_PARAMS = "start 00 2 3 4 5 . stop 10 0 1 6 ."
 
 do_install() {
     install -d ${D}${sysconfdir}/init.d/

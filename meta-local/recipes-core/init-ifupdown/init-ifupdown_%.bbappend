@@ -15,11 +15,16 @@ do_install:append() {
     grep -q 'wpa-conf /data/wpa_supplicant.conf' ${D}${sysconfdir}/network/interfaces || \
         bbfatal "init-ifupdown: could not point wpa-conf to /data"
 
-    # Seed the persistent copy from the default in the image on first boot
+    # Seed the persistent copy from the default in the image on first boot.
+    # Then force mode 600 on every boot: "wpa_cli save_config" rewrites the
+    # file with the default umask (644), exposing the PSK hash.
     DATA_CONF=/data/wpa_supplicant.conf
     SEED_CMD="pre-up [ -f $DATA_CONF ] || cp -p /etc/wpa_supplicant.conf $DATA_CONF"
-    sed -i "s#^\(\s*\)wpa-conf $DATA_CONF\$#&\n\1$SEED_CMD#" \
+    PERM_CMD="pre-up chmod 600 $DATA_CONF"
+    sed -i "s#^\(\s*\)wpa-conf $DATA_CONF\$#&\n\1$SEED_CMD\n\1$PERM_CMD#" \
         ${D}${sysconfdir}/network/interfaces
     grep -q "pre-up .* $DATA_CONF" ${D}${sysconfdir}/network/interfaces || \
         bbfatal "init-ifupdown: could not add the pre-up seed line"
+    grep -q "$PERM_CMD" ${D}${sysconfdir}/network/interfaces || \
+        bbfatal "init-ifupdown: could not add the pre-up chmod line"
 }

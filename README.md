@@ -1,4 +1,4 @@
-# Yocto for Raspberry Pi Zero W (MIDI synthesizer)
+# Raspberry Pi Zero W MIDI synthesizer using Yocto
 
 A Yocto (`scarthgap`) image for the Raspberry Pi Zero W that works as a
 simple headless synthesizer. USB MIDI controllers (tested with an Arturia
@@ -10,19 +10,24 @@ SSH (dropbear) and a serial console.
 
 ## What is in this repo
 
-The repo contains only the `meta-local` layer and `kas.yml`, which describes
-where to fetch the rest (poky, meta-openembedded, meta-raspberrypi) and how to
-configure the build. The upstream layers are not stored here.
+The repo contains only the `meta-local` layer, `kas.yml` and `kas-debug.yml`.
+`kas.yml` describes where to fetch the rest (poky, meta-openembedded,
+meta-raspberrypi) and how to configure the build. The upstream layers are not
+stored here. `kas-debug.yml` is an overlay for a debug variant of the image
+(see "Boot time" below).
 
 ```
 meta-local/
 ├── conf/layer.conf
-├── conf/machine/raspberrypi0-wifi-synth.conf   machine: UART console, USB host (dwc2), I2S DAC overlay
-├── recipes-core/images/rpi0-synth-image.bb     image (core-image-minimal + kernel modules + WiFi + SSH + alsa-utils + fluidsynth + soundfont + autostart)
-├── recipes-connectivity/wpa-supplicant/        WiFi network configuration
-├── recipes-core/init-ifupdown/                 wlan0 in /etc/network/interfaces
+├── conf/machine/raspberrypi0-wifi-synth.conf   machine: UART console, USB host (dwc2), I2S DAC overlay, U-Boot, kernel 6.12, no BT/VC4
+├── wic/sdimage-synth.wks                       SD card layout: boot (vfat), rootfs (ext4, read-only), /data (ext4, rw)
+├── recipes-core/images/rpi0-synth-image.bb     image (core-image-minimal + kernel modules + WiFi + SSH + alsa-utils + fluidsynth + soundfont + autostart), read-only rootfs
+├── recipes-core/init-ifupdown/                 wlan0 in /etc/network/interfaces, wpa_supplicant.conf on /data
+├── recipes-core/dropbear/                      SSH host keys on /data
+├── recipes-connectivity/wpa-supplicant/        default WiFi network configuration
 ├── recipes-bsp/bootfiles/                      rpi-bootfiles fetch fix (checksum)
-├── recipes-kernel/linux/                       shallow git clone of the kernel
+├── recipes-bsp/u-boot/                         U-Boot config fragments: no boot delay, no USB scan at boot
+├── recipes-kernel/linux/                       shallow git clone of the kernel, /proc/config.gz (ikconfig.cfg)
 └── recipes-multimedia/
     ├── fluidsynth/                             fluidsynth built with ALSA only (no pulseaudio)
     ├── soundfonts/                             TimGM6mb soundfont (GPL-2.0), fetched from GitHub
@@ -32,10 +37,19 @@ meta-local/
 
 The custom machine `raspberrypi0-wifi-synth` inherits from `raspberrypi0-wifi`
 (meta-raspberrypi) and adds `raspberrypi0-wifi` to `MACHINEOVERRIDES`, so the
-upstream overrides (e.g. the kernel defconfig) keep applying to it. It adds
-the `config.txt` lines for the serial console (`disable-bt`, `enable_uart`),
-for USB host mode (`dwc2,dr_mode=host`) and for the sound card
-(`iqaudio-dac`).
+upstream overrides (e.g. the kernel defconfig) keep applying to it. On top of
+that it:
+
+- enables the serial console on the mini-UART (`ENABLE_UART = "1"`, `ttyS0`),
+  the default for the Zero W in meta-raspberrypi and in U-Boot,
+- adds the `config.txt` lines for USB host mode (`dwc2,dr_mode=host`), for the
+  sound card (`iqaudio-dac`) and to switch Bluetooth off
+  (`dtparam=krnbt=off`, the Bluetooth device tree node gets
+  `status = "disabled"`; `krnbt=on` brings it back),
+- blacklists the VideoCore modules the synth does not use (codec, ISP,
+  camera, `vc-sm-cma`, the built-in audio) with `KERNEL_MODULE_PROBECONF`,
+- selects kernel 6.12 and disables the VC4 graphics (headless board),
+- boots through U-Boot (`RPI_USE_U_BOOT = "1"`).
 
 ## Hardware
 
@@ -48,8 +62,9 @@ for USB host mode (`dwc2,dr_mode=host`) and for the sound card
 - Serial console: the HUB HAT has a CP2102 USB-to-UART converter, reached
   through its "USB TO UART" micro-USB port (the two switches on the back of
   the HAT set to ON/ON), 115200 baud. The HAT covers the GPIO header, so an
-  adapter wired to pins 6, 8 and 10 does not fit next to it. Bluetooth is
-  disabled (`disable-bt`) so the full UART is on GPIO14/15. On a Linux host
+  adapter wired to pins 6, 8 and 10 does not fit next to it. The console is
+  the mini-UART on GPIO14/15 (`ttyS0`), the same UART U-Boot prints to, so
+  U-Boot, the kernel and the login prompt all show up. On a Linux host
   the console shows up as `/dev/ttyUSB0` (the user has to be in the
   `dialout` group). In a VirtualBox VM the USB filter has to pass the CP2102
   through, and Windows needs the Silicon Labs CP210x driver.
@@ -169,19 +184,66 @@ and log in with `ssh root@<IP>`.
 Passwordless `root` is a development setting (`debug-tweaks` in `kas.yml`),
 do not leave it on a device exposed to a network.
 
-### Changing WiFi networks on a running board
+The first boot after flashing is slower: dropbear generates the SSH host key
+(RSA 2048, 10–20 s on this CPU) and stores it on `/data`, and U-Boot saves
+its environment (`uboot.env`) on the boot partition. Later boots reuse both,
+and the SSH host key fingerprint stays the same across reboots. It changes
+after every flash, so remove the old entry from `~/.ssh/known_hosts` then.
 
-`update_config=1` is enabled, so networks can be added over SSH or UART
-without rebuilding:
+## Read-only root filesystem
+
+The board is meant to be switched off by pulling the power cable, without a
+console and without `poweroff`. To make that safe, almost nothing on the SD
+card is mounted writable:
+
+| Partition | Mount | Mode | Contents |
+|---|---|---|---|
+| 1, vfat | `/boot` | read-only | firmware, `config.txt`, `cmdline.txt`, U-Boot (`kernel.img`), `uImage`, `boot.scr` |
+| 2, ext4 | `/` | read-only | the root filesystem (`IMAGE_FEATURES += "read-only-rootfs"`) |
+| 3, ext4, 64 MB | `/data` | read-write, `noatime,data=journal` | state that must survive a reboot |
+
+`/var`, `/tmp` and `/run` live in RAM (logs are lost on reboot). `/data`
+holds only:
+
+- the SSH host key (`/data/dropbear/`),
+- the WiFi configuration (`/data/wpa_supplicant.conf`, see below).
+
+The state of the synthesizer (knob positions, selected patches, mixer level)
+is not saved.
+
+Pulling the power was tested: the root and boot partitions need no repair,
+and the journal of `/data` is replayed at the next boot
+(`EXT4-fs (mmcblk0p3): recovery complete`, about 1 s longer boot).
+
+To change a file on the root filesystem for a quick test, remount it
+writable and back:
 
 ```bash
-wpa_passphrase "SSID" "PASSWORD" | grep -v '#psk' >> /etc/wpa_supplicant.conf
+mount -o remount,rw /
+# ... edit ...
+mount -o remount,ro /
+```
+
+Changes made this way are lost with the next flash. Permanent changes belong
+in the layer.
+
+### Changing WiFi networks on a running board
+
+`wpa_supplicant` reads `/data/wpa_supplicant.conf`. On the first boot it is
+copied there from the default in the image (`/etc/wpa_supplicant.conf`, built
+from `wpa_supplicant.conf-sane`). `update_config=1` is enabled, so networks
+can be added over SSH or UART without rebuilding:
+
+```bash
+wpa_passphrase "SSID" "PASSWORD" | grep -v '#psk' >> /data/wpa_supplicant.conf
 wpa_cli -i wlan0 reconfigure
 ```
 
-Changes survive reboots but are lost when a new image is flashed. Networks
-that should always be present belong in `wpa_supplicant.conf-sane` in the
-layer.
+or with `wpa_cli` (`add_network`, `set_network`, `enable_network`) followed
+by `wpa_cli save_config`. Changes survive reboots, but flashing a new image
+overwrites `/data` too, so networks that should always be present belong in
+`wpa_supplicant.conf-sane` in the layer. The file is set to mode 600 on every
+boot, because `save_config` rewrites it with mode 644.
 
 ### Testing the speakers
 
@@ -269,8 +331,9 @@ What we saw on the Zero W with the `dwc2` USB driver (the one in
 
 ### How it works
 
-- `/etc/init.d/synth` (linked as `S90synth` in `rc5.d` by `update-rc.d`)
-  waits for the `IQaudIODAC` card, sets the mixer level and starts fluidsynth
+- `/etc/init.d/synth` (linked as `S00synth` in `rc5.d` by `update-rc.d`, so
+  it starts before the network, which waits for DHCP; `pc-bridge` is `S00`
+  too) waits for the `IQaudIODAC` card, sets the mixer level and starts fluidsynth
   (ALSA audio output, MIDI input from the ALSA sequencer) and `synth-connect`.
   Control it with `/etc/init.d/synth start|stop|restart`.
 - `synth-connect` is a small shell loop. Every `INTERVAL` seconds (5 by
@@ -290,7 +353,8 @@ What we saw on the Zero W with the `dwc2` USB driver (the one in
 The parameters are variables at the top of
 `meta-local/recipes-multimedia/synth-autostart/files/synth`. To change them
 for good, edit that file and rebuild the image. To try a value on a running
-board, edit `/etc/init.d/synth` and run `/etc/init.d/synth restart`.
+board, remount the root filesystem writable (see "Read-only root filesystem"),
+edit `/etc/init.d/synth` and run `/etc/init.d/synth restart`.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -558,6 +622,57 @@ This matters most for fluidsynth, whose failure is loud (silence), but also
 for `synth-connect` and `pc-bridge`, whose failure is quiet: sound keeps
 playing, only auto-connecting new controllers, or CC 3 to Program Change
 and the synth knobs, silently stops working.
+
+## Boot time
+
+The board boots through U-Boot: the Raspberry Pi firmware loads U-Boot as
+`kernel.img`, U-Boot runs `boot.scr`, which loads the kernel (`uImage`) and
+boots it with the device tree prepared by the firmware (overlays applied).
+U-Boot is there for future A/B updates and for changing kernel parameters
+without a rebuild. Two U-Boot config fragments
+(`meta-local/recipes-bsp/u-boot/files/`) remove its costs: no autoboot
+countdown (`CONFIG_BOOTDELAY=0`; a key pressed on the console at that moment
+still stops it) and no USB scan before booting (`CONFIG_USB_KEYBOARD` and
+`CONFIG_USE_PREBOOT` off, they made U-Boot run `usb start` on every boot).
+
+Measured from `reboot` to `Starting synth: done.` on the serial console (with
+host timestamps, `ts` from moreutils), a few boots each:
+
+| Stage | Time |
+|---|---|
+| Firmware | 2.1 s |
+| U-Boot | 2.1 s |
+| Kernel up to `/sbin/init` | 3.3 s |
+| `rcS.d` (mostly udev) | 5.5–6.8 s |
+| `rc5.d` up to the synth | 0.3–0.4 s |
+| **Total** | **13–14 s** (22.5 s at the start of the work) |
+
+The synth starts before the network, so SSH comes up later, after DHCP.
+Fluidsynth still loads the soundfont after `Starting synth: done.`, so the
+first note can be played a moment later.
+
+### Debug variant with bootchart
+
+`kas-debug.yml` adds bootchart2 to the image and starts it as PID 1
+(`init=/sbin/bootchartd`), so it records the whole user space part of the
+boot. It is an overlay on top of `kas.yml`:
+
+```bash
+kas build kas.yml:kas-debug.yml
+```
+
+After the boot, copy `/var/log/bootchart.tgz` from the board and render it on
+the host. `bootchart2-native` does not build in scarthgap (its `do_install`
+looks for the man pages in the wrong place), so use the script from the
+sources with the host's pycairo:
+
+```bash
+sudo apt install python3-cairo
+python3 build/tmp/work/x86_64-linux/bootchart2-native/0.14.9/git/pybootchartgui.py \
+    -o bootchart.png bootchart.tgz
+```
+
+The source directory exists after `bitbake bootchart2-native -c unpack`.
 
 ## License
 

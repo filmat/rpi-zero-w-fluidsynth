@@ -1,0 +1,8 @@
+# short-description: SD card image for the synth
+# long-description: Raspberry Pi layout (vfat boot, ext4 rootfs) plus a small
+# ext4 /data partition for state that must survive power loss (SSH host
+# keys, wpa_supplicant.conf). Journaled data, written rarely.
+
+part /boot --source bootimg-partition --ondisk mmcblk0 --fstype=vfat --label boot --active --align 4096 --size 100
+part / --source rootfs --ondisk mmcblk0 --fstype=ext4 --label root --align 4096
+part /data --ondisk mmcblk0 --fstype=ext4 --label data --align 4096 --size 64 --fsoptions "noatime,data=journal"

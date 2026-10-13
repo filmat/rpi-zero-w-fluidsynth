@@ -1,0 +1,7 @@
+header:
+  version: 14
+  includes:
+    - kas/common.yml
+
+machine: raspberrypi0-wifi-synth
+target: rpi0-synth-image

@@ -1,7 +1,7 @@
 header:
   version: 14
 
-# Debug variant: kas build kas.yml:kas-debug.yml
+# Debug variant: kas build kas/rpi.yml:kas/kas-debug.yml
 local_conf_header:
   bootchart: |
     # Boot profiling: bootchartd runs as PID 1 and starts /sbin/init;

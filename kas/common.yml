@@ -1,12 +1,10 @@
 header:
   version: 14
 
-machine: raspberrypi0-wifi-synth
 distro: poky
-target: rpi0-synth-image
 
 repos:
-  # to repozytorium (zawiera meta-local)
+  # this repo contains meta-local
   meta-local:
     layers:
       meta-local:
@@ -37,8 +35,12 @@ local_conf_header:
   debug: |
     # passwordless root -- development setting, not for a networked device
     EXTRA_IMAGE_FEATURES += "debug-tweaks"
-  # By default downloads and sstate cache live in build/downloads and
-  # build/sstate-cache. To share them between build directories, uncomment:
-  # cache: |
-  #   DL_DIR = "/path/to/downloads"
-  #   SSTATE_DIR = "/path/to/sstate-cache"
+  # Shared download and sstate cache in yocto-cache/, a sibling of the
+  # directory holding this repo clone (TOPDIR is <clone>/build). Weak
+  # defaults (?=): DL_DIR/SSTATE_DIR exported in the shell still win,
+  # because kas passes them through to bitbake before local.conf is
+  # parsed. Without this, a shell lacking those variables silently falls
+  # back to an empty build/sstate-cache and rebuilds everything.
+  cache: |
+    DL_DIR ?= "${TOPDIR}/../../../yocto-cache/downloads"
+    SSTATE_DIR ?= "${TOPDIR}/../../../yocto-cache/sstate-cache"

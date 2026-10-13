@@ -10,11 +10,24 @@ SSH (dropbear) and a serial console.
 
 ## What is in this repo
 
-The repo contains only the `meta-local` layer, `kas.yml` and `kas-debug.yml`.
-`kas.yml` describes where to fetch the rest (poky, meta-openembedded,
+The repo contains only the `meta-local` layer and the kas files in `kas/`.
+The kas files describe where to fetch the rest (poky, meta-openembedded,
 meta-raspberrypi) and how to configure the build. The upstream layers are not
-stored here. `kas-debug.yml` is an overlay for a debug variant of the image
-(see "Boot time" below).
+stored here.
+
+```
+kas/
+├── common.yml          layers, distro and local.conf settings shared by all boards
+├── common.lock.yml     exact commits of the upstream layers (see "Pinning layer versions")
+├── rpi0.yml            Raspberry Pi Zero W: includes common.yml, sets machine and image
+├── kas-debug.yml       overlay for a debug variant of the image (see "Boot time" below)
+└── kas-exp.yml         overlay for experiments (commented-out settings)
+```
+
+`meta-local` is shared by all boards. It has `.bbappend` files for
+meta-raspberrypi recipes (kernel, bootfiles, U-Boot), so meta-raspberrypi is
+in `common.yml` too: without it BitBake stops with "No recipes available
+for" the dangling appends.
 
 ```
 meta-local/
@@ -112,34 +125,62 @@ that it:
 3. Build:
 
    ```bash
-   kas build kas.yml
+   kas build kas/rpi0.yml
    ```
 
-   The first build takes several hours. The image ends up in
+   Run kas from the repo root: the files on the kas command line are relative
+   to the current directory, while `includes` inside them are relative to the
+   repo root. The first build takes several hours. The image ends up in
    `build/tmp/deploy/images/raspberrypi0-wifi-synth/`.
 
 `kas` creates `build/`, generates `conf/local.conf` and `conf/bblayers.conf`
-from `kas.yml` and loads the build environment (the equivalent of
+from the kas files and loads the build environment (the equivalent of
 `source oe-init-build-env`). Do not edit `build/conf/local.conf` by hand, kas
-overwrites it. Put persistent settings in `kas.yml` (`local_conf_header`) or
-in the layer.
+overwrites it. Put persistent settings in `kas/common.yml` (all boards) or in
+the board file (`local_conf_header`), or in the layer.
 
 For manual BitBake commands (`bitbake -e`, `bitbake-layers`, ...) open a
 shell with the environment loaded:
 
 ```bash
-kas shell kas.yml
+kas shell kas/rpi0.yml
+```
+
+### Shared download and sstate cache
+
+Downloads and sstate default to `build/downloads` and `build/sstate-cache`.
+To share them between build directories (other boards, other projects),
+export their location in the shell, e.g. in `~/.bashrc`:
+
+```bash
+export DL_DIR="$HOME/yocto-cache/downloads"
+export SSTATE_DIR="$HOME/yocto-cache/sstate-cache"
+```
+
+kas passes both variables through to BitBake. Open a new shell after editing
+`~/.bashrc`. As a fallback for a shell without them, `kas/common.yml` sets
+`DL_DIR ?=` and `SSTATE_DIR ?=` to `yocto-cache/` three levels above the build
+directory (`${TOPDIR}/../../../yocto-cache`, i.e. a sibling of the directory
+that holds the clone). The weak assignment (`?=`) does not override the
+exported variables: BitBake stores them before it parses `local.conf`.
+Without the fallback such a shell would silently use an empty
+`build/sstate-cache` and rebuild everything. Check with:
+
+```bash
+kas shell kas/rpi0.yml -c 'bitbake-getvar --value SSTATE_DIR'
 ```
 
 ### Pinning layer versions
 
-`kas.yml` follows the `scarthgap` branch of each upstream layer (poky,
+`kas/common.yml` follows the `scarthgap` branch of each upstream layer (poky,
 meta-openembedded, meta-raspberrypi). A branch moves whenever upstream pushes
 to it, so two builds made at different times could use different code.
 
-`kas.lock.yml` prevents that. It stores the exact commit of each upstream
-layer, and kas picks it up automatically when it sits next to `kas.yml`, so
-every `kas build kas.yml` checks out the same versions. The commits in the
+`kas/common.lock.yml` prevents that. It stores the exact commit of each
+upstream layer. kas looks for `<name>.lock.yml` next to every file it loads,
+included files too, so it picks up `common.lock.yml` through
+`includes: [kas/common.yml]` and every `kas build kas/rpi0.yml` checks out the
+same versions. The commits in the
 lock file are the ones the image was built and tested with on the board.
 
 #### Updating to newer layer versions
@@ -147,24 +188,27 @@ lock file are the ones the image was built and tested with on the board.
 Do this on purpose, not by accident:
 
 ```bash
-kas lock --update kas.yml    # pull newer commits from the branches, rewrite kas.lock.yml
-git diff kas.lock.yml        # see which layers moved
-kas build kas.yml            # rebuild
+kas lock --update kas/rpi0.yml   # pull newer commits, rewrite kas/common.lock.yml
+git diff kas/common.lock.yml     # see which layers moved
+kas build kas/rpi0.yml           # rebuild
 ```
 
 Flash the new image and test it on the board (boot, WiFi, SSH). Only if it
 works, commit the new lock file:
 
 ```bash
-git add kas.lock.yml
+git add kas/common.lock.yml
 git commit -m "Update layer versions"
 ```
 
 If the new build or the board misbehaves, go back to the last working
-versions with `git checkout kas.lock.yml`.
+versions with `git checkout kas/common.lock.yml`.
 
-After changing the repositories or branches in `kas.yml`, run
-`kas lock kas.yml` again so the lock file matches. The lock file covers only
+After changing the repositories or branches in `kas/common.yml`, run
+`kas lock kas/rpi0.yml` again so the lock file matches. kas updates a commit
+in the lock file that already pins that repo; a repo pinned nowhere goes to a
+new lock file next to the first file on the command line
+(`kas/rpi0.lock.yml`). The lock file covers only
 the upstream layers, `meta-local` is versioned by this repo's own commits.
 
 ## Flashing and first boot
@@ -181,7 +225,7 @@ Insert the card, connect power and open the serial console:
 joined WiFi, find its IP address on the router or with `ip a show wlan0`
 and log in with `ssh root@<IP>`.
 
-Passwordless `root` is a development setting (`debug-tweaks` in `kas.yml`),
+Passwordless `root` is a development setting (`debug-tweaks` in `kas/common.yml`),
 do not leave it on a device exposed to a network.
 
 The first boot after flashing is slower: dropbear generates the SSH host key
@@ -653,12 +697,12 @@ first note can be played a moment later.
 
 ### Debug variant with bootchart
 
-`kas-debug.yml` adds bootchart2 to the image and starts it as PID 1
+`kas/kas-debug.yml` adds bootchart2 to the image and starts it as PID 1
 (`init=/sbin/bootchartd`), so it records the whole user space part of the
-boot. It is an overlay on top of `kas.yml`:
+boot. It is an overlay on top of a board file:
 
 ```bash
-kas build kas.yml:kas-debug.yml
+kas build kas/rpi0.yml:kas/kas-debug.yml
 ```
 
 After the boot, copy `/var/log/bootchart.tgz` from the board and render it on

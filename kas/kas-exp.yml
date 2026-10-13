@@ -1,0 +1,10 @@
+header:
+  version: 14
+
+local_conf_header:
+  experiment: |
+    #    PREFERRED_PROVIDER_virtual/kernel = "linux-raspberrypi"
+    #    PREFERRED_VERSION_linux-raspberrypi = "6.12%"
+    #    INHERIT += "cve-check"
+    #    RPI_USE_U_BOOT = "1"
+    #    IMAGE_FEATURES += "read-only-rootfs"

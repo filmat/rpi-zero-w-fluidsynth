@@ -1,13 +1,13 @@
-# Cudze warstwy (klony upstreamu) -- pobierane przez kas.yml
+# Upstream layers (clones) -- fetched by kas from kas/common.yml
 /poky/
 /meta-openembedded/
 /meta-raspberrypi/
 
-# Katalog builda kasa
-/build/
+# kas build directories (build/, build-rpi0/, build-rpi4/, ...)
+/build*/
 
-# Prywatne notatki robocze
+# Private working notes
 /yocto-rpi-zero-w-plan.md
 
-# Hashe PSK do prawdziwych sieci WiFi -- wzor w wpa_supplicant.conf-sane.example
+# PSK hashes for real WiFi networks -- template in wpa_supplicant.conf-sane.example
 /meta-local/recipes-connectivity/wpa-supplicant/wpa-supplicant/wpa_supplicant.conf-sane

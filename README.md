@@ -133,6 +133,13 @@ that it:
    repo root. The first build takes several hours. The image ends up in
    `build/tmp/deploy/images/raspberrypi0-wifi-synth/`.
 
+   kas builds in `build/` by default. To keep one build directory per board,
+   set `KAS_BUILD_DIR`, e.g. `KAS_BUILD_DIR=build-rpi0 kas build
+   kas/rpi0.yml`; the kas files cannot set the build directory. Do not move
+   an existing build directory: `tmp/` holds absolute paths and BitBake
+   refuses to run ("TMPDIR has changed location"). Delete `tmp/` after a
+   move, it is restored from sstate.
+
 `kas` creates `build/`, generates `conf/local.conf` and `conf/bblayers.conf`
 from the kas files and loads the build environment (the equivalent of
 `source oe-init-build-env`). Do not edit `build/conf/local.conf` by hand, kas

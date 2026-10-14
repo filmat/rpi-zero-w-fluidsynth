@@ -1,0 +1,25 @@
+# Serial console via the CP2102 on the HAT: mini-UART (ttyS0), the default
+# for Zero W in meta-raspberrypi and in U-Boot (no disable-bt)
+ENABLE_UART = "1"
+
+# Bluetooth not used by the synth; re-enable with krnbt=on (e.g. for a BT speaker)
+RPI_EXTRA_CONFIG += "\ndtparam=krnbt=off\n"
+
+# Kernel 6.12 from meta-raspberrypi (default is 6.6)
+PREFERRED_VERSION_linux-raspberrypi = "6.12%"
+
+# No VC4 graphics (headless): no dtoverlay=vc4-kms-v3d, 64 MiB CMA instead
+# of 256 MiB, ALSA/I2C core as modules, DAC is sound card 0
+DISABLE_VC4GRAPHICS = "1"
+
+# U-Boot as bootloader (firmware -> kernel.img = U-Boot -> boot.scr -> uImage)
+RPI_USE_U_BOOT = "1"
+
+# Blacklist modules registered by vchiq (they have no DT nodes to disable):
+# VideoCore codec/ISP/camera.
+# Names must match the .ko file names (with dashes), not lsmod output.
+KERNEL_MODULE_PROBECONF += "bcm2835-codec bcm2835-isp bcm2835-v4l2 vc-sm-cma"
+module_conf_bcm2835-codec = "blacklist bcm2835_codec"
+module_conf_bcm2835-isp = "blacklist bcm2835_isp"
+module_conf_bcm2835-v4l2 = "blacklist bcm2835_v4l2"
+module_conf_vc-sm-cma = "blacklist vc_sm_cma"

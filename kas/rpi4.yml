@@ -3,12 +3,10 @@ header:
   includes:
     - kas/common.yml
 
-machine: raspberrypi4-64
+machine: raspberrypi4-synth
 target: core-image-minimal
 
 local_conf_header:
   rpi4: |
      # SSH over Ethernet for the first boot, until the board has its own image
      EXTRA_IMAGE_FEATURES += "ssh-server-dropbear"
-     # Serial console on GPIO14/15 (pins 8/10): enable_uart=1 and console=serial0
-     ENABLE_UART = "1"

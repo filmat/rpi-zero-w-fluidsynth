@@ -10,3 +10,7 @@ local_conf_header:
   rpi4: |
      # SSH over Ethernet for the first boot, until the board has its own image
      EXTRA_IMAGE_FEATURES += "ssh-server-dropbear"
+     # Audio test on the jack until the board has its own image
+     IMAGE_INSTALL:append = " kernel-module-snd-bcm2835 alsa-utils-aplay alsa-utils-speakertest \
+                              kernel-module-snd-usb-audio kernel-module-snd-seq-midi \
+                              alsa-utils-midi alsa-utils-aconnect alsa-utils-aseqdump"

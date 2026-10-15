@@ -1,0 +1,26 @@
+From e7c484c5d9950f19828f6cfa19a842693491fbc8 Mon Sep 17 00:00:00 2001
+From: Filip Matusiak <feelmat@gmail.com>
+Date: Thu, 15 Oct 2026 21:12:16 +0200
+Subject: [PATCH] rpi: drop usbkbd from default stdin
+
+USB keyboard support is disabled (CONFIG_USB_KEYBOARD unset), so
+usbkbd in stdin is never found and only clutters the console setup.
+
+Upstream-Status: Inappropriate [configuration]
+---
+ board/raspberrypi/rpi/rpi.env | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/board/raspberrypi/rpi/rpi.env b/board/raspberrypi/rpi/rpi.env
+index 30228285edd..390284bb0f8 100644
+--- a/board/raspberrypi/rpi/rpi.env
++++ b/board/raspberrypi/rpi/rpi.env
+@@ -5,7 +5,7 @@
+ dhcpuboot=usb start; dhcp u-boot.uimg; bootm
+ 
+ /* Environment */
+-stdin=serial,usbkbd
++stdin=serial
+ stdout=serial,vidconsole
+ stderr=serial,vidconsole
+ 

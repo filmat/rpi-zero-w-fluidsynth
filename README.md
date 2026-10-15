@@ -34,7 +34,7 @@ meta-local/
 ├── conf/layer.conf
 ├── conf/machine/raspberrypi0-wifi-synth.conf   machine: UART console, USB host (dwc2), I2S DAC overlay, U-Boot, kernel 6.12, no BT/VC4
 ├── wic/sdimage-synth.wks                       SD card layout: boot (vfat), rootfs (ext4, read-only), /data (ext4, rw)
-├── recipes-core/images/rpi0-synth-image.bb     image (core-image-minimal + kernel modules + WiFi + SSH + alsa-utils + fluidsynth + soundfont + autostart), read-only rootfs
+├── recipes-core/images/synth-image.bb          image (core-image-minimal + kernel modules + WiFi + SSH + alsa-utils + fluidsynth + soundfont + autostart), read-only rootfs
 ├── recipes-core/init-ifupdown/                 wlan0 in /etc/network/interfaces, wpa_supplicant.conf on /data
 ├── recipes-core/dropbear/                      SSH host keys on /data
 ├── recipes-connectivity/wpa-supplicant/        default WiFi network configuration
@@ -223,7 +223,7 @@ the upstream layers, `meta-local` is versioned by this repo's own commits.
 ```bash
 lsblk    # find the SD card device, do not pick your system disk
 sudo bmaptool copy \
-    build/tmp/deploy/images/raspberrypi0-wifi-synth/rpi0-synth-image-raspberrypi0-wifi-synth.rootfs.wic.bz2 \
+    build/tmp/deploy/images/raspberrypi0-wifi-synth/synth-image-raspberrypi0-wifi-synth.rootfs.wic.bz2 \
     /dev/sdX
 ```
 

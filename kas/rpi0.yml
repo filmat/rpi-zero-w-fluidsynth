@@ -4,4 +4,4 @@ header:
     - kas/common.yml
 
 machine: raspberrypi0-wifi-synth
-target: rpi0-synth-image
+target: synth-image

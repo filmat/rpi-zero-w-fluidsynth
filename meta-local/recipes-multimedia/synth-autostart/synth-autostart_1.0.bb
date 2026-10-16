@@ -1,13 +1,14 @@
-# Autostart syntezatora i kontrolerów
+# Synth and MIDI controller autostart
 
-SUMMARY = "Autostart syntezatora i binding klawiatur"
-DESCRIPTION = "Odpala fluidsynth i podpina Keystep 37 oraz MPK Mini przy starcie na jego wejscie"
+SUMMARY = "Synth autostart and MIDI controller binding"
+DESCRIPTION = "Starts fluidsynth at boot and connects the KeyStep 37 and MPK mini to its input"
 SECTION = "multimedia"
 
 LICENSE = "MIT"
 LIC_FILES_CHKSUM = "file://${COMMON_LICENSE_DIR}/MIT;md5=0835ade698e0bcf8506ecda2f7b4f302"
 
 SRC_URI = "file://synth file://synth-connect file://respawn"
+SRC_URI += "file://synth.default"
 
 S = "${WORKDIR}"
 
@@ -22,6 +23,12 @@ do_install() {
     install -d ${D}${bindir}/
     install -m 0755 ${WORKDIR}/synth-connect ${D}${bindir}/
     install -m 0755 ${WORKDIR}/respawn ${D}${bindir}/
+    install -d ${D}${sysconfdir}/default/
+    install -m 0644 ${WORKDIR}/synth.default ${D}${sysconfdir}/default/synth
 }
 
 RDEPENDS:${PN} += "alsa-utils-aconnect alsa-utils-amixer fluidsynth-bin timgm6mb-soundfont"
+
+# /etc/default/synth differs per board (FILESOVERRIDES), so the package must
+# not be shared between machines that only have the same CPU tune
+PACKAGE_ARCH = "${MACHINE_ARCH}"

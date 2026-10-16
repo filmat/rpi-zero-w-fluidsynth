@@ -1,0 +1,3 @@
+# Board settings for /etc/init.d/synth: Zero W with the PCM5122 DAC HAT (I2S)
+CARD=IQaudIODAC
+MIXER=Digital
